@@ -14,6 +14,7 @@
         <input type="hidden" name="wc-products" value="<?php echo trim($attributes['products']); ?>">
         <input type="hidden" name="wc-redirect" value="<?php echo trim($attributes['redirect']); ?>">
         <input type="hidden" name="wc-page" value="<?php echo trim(WP_SHORTCODE_REGISTER::currentUrl()); ?>">
+        <input type="hidden" name="wc-payment" value="<?php echo trim($attributes['payment']); ?>">
 
         <div class="wc-register-shortcode__fullname_title mb-1">
             <?php echo $attributes['fullname']; ?>
