@@ -3,7 +3,7 @@
  * Plugin Name:       WordPress ShortCode Register Form
  * Plugin URI:        https://realwp.net
  * Description:       Create shortCode Register and Create file Download Order WooCommerce With digits
- * Version:           1.10.3
+ * Version:           1.10.4
  * Requires at least: 5.2
  * Requires PHP:      7.2
  * Author:            Mehrshad Darzi
@@ -97,7 +97,8 @@ class WP_SHORTCODE_REGISTER
             'fullname' => 'نام و نام خانوادگی',
             'mobile' => 'شماره همراه',
             'button' => 'ثبت نام',
-            'class' => ''
+            'class' => '',
+            'payment' => 'free'
         ), $attributes, 'wc_register_product');
 
         // init Output
@@ -126,7 +127,8 @@ class WP_SHORTCODE_REGISTER
         if (isset($_GET['wc-register-shortcode'])
             and wp_verify_nonce($_GET['wc-register-shortcode'], 'wc-register-shortcode')
             and isset($_GET['wc-page']) and !empty($_GET['wc-page'])
-            and isset($_GET['wc-redirect']) and !empty($_GET['wc-redirect'])
+            and isset($_GET['wc-redirect'])
+            and isset($_GET['wc-payment']) and !empty($_GET['wc-payment'])
             and isset($_GET['wc-fullname'])
             and isset($_GET['wc-mobile'])
             and isset($_GET['wc-products'])
@@ -153,65 +155,127 @@ class WP_SHORTCODE_REGISTER
             }
 
             // Check User Exist Or Created User
-            $user_login = ltrim($Mobile, "0");
-            $user = get_user_by('login', $user_login);
-            if (!$user) {
+            $user = wp_get_current_user();
+            if ($user->ID == "0") {
+                $user_login = ltrim($Mobile, "0");
+                $user = get_user_by('login', $user_login);
+                if (!$user) {
 
-                // Create New User
-                $user_id = wp_insert_user([
-                    'user_login' => $user_login,
-                    'user_email' => $Mobile . '@' . self::getDomain(),
-                    'user_pass' => wp_generate_password(8),
-                    'first_name' => trim($fullName),
-                    'last_name' => '',
-                    'role' => 'subscriber',
-                    'display_name' => trim($fullName),
-                    'show_admin_bar_front' => 'false'
-                ]);
-                if (is_wp_error($user_id)) {
-                    $location = add_query_arg(['_form_notice' => 'خطا در ایجاد کاربر:' . $user_id->get_error_message()], trim($_GET['wc-page']));
-                    wp_redirect($location);
-                    exit;
+                    // Create New User
+                    $user_id = wp_insert_user([
+                        'user_login' => $user_login,
+                        'user_email' => $Mobile . '@' . self::getDomain(),
+                        'user_pass' => wp_generate_password(8),
+                        'first_name' => trim($fullName),
+                        'last_name' => '',
+                        'role' => 'subscriber',
+                        'display_name' => trim($fullName),
+                        'show_admin_bar_front' => 'false'
+                    ]);
+                    if (is_wp_error($user_id)) {
+                        $location = add_query_arg(['_form_notice' => 'خطا در ایجاد کاربر:' . $user_id->get_error_message()], trim($_GET['wc-page']));
+                        wp_redirect($location);
+                        exit;
+                    }
+
+                    // Get User
+                    $user = get_user_by('id', $user_id);
+
+                    // Create User Meta
+                    update_user_meta($user_id, 'digits_phone', '+98' . $user_login);
+                    update_user_meta($user_id, 'digt_countrycode', '+98');
+                    update_user_meta($user_id, 'digits_phone_no', $user_login);
+                    update_user_meta($user_id, 'billing_phone', $Mobile);
+                    update_user_meta($user_id, 'billing_country', '+98');
+                    update_user_meta($user_id, 'billing_first_name', $fullName);
+                    update_user_meta($user_id, 'billing_last_name', '');
+
+                    // Auto Login User
+                    wp_set_current_user($user_id);
+                    wp_set_auth_cookie($user_id);
                 }
-
-                // Get User
-                $user = get_user_by('id', $user_id);
-
-                // Create User Meta
-                update_user_meta($user_id, 'digits_phone', '+98' . $user_login);
-                update_user_meta($user_id, 'digt_countrycode', '+98');
-                update_user_meta($user_id, 'digits_phone_no', $user_login);
-                update_user_meta($user_id, 'billing_phone', $Mobile);
-                update_user_meta($user_id, 'billing_country', '+98');
-                update_user_meta($user_id, 'billing_first_name', $fullName);
-                update_user_meta($user_id, 'billing_last_name', '');
-
-                // Auto Login User
-                wp_set_current_user($user_id);
-                wp_set_auth_cookie($user_id);
             }
+
+            // Generate redirect Link
+            $redirect_link = (!empty($_GET['wc-redirect']) ? $_GET['wc-redirect'] : wc_get_account_endpoint_url('dashboard'));
 
             // Create Order and Added Permission
             if (!empty($_GET['wc-products']) and is_numeric($_GET['wc-products']) and get_post_type($_GET['wc-products']) == "product") {
 
-                // @see https://www.damiencarbery.com/2018/01/programmatically-create-a-woocommerce-order-for-a-downloadable-product/
-                $order = wc_create_order(array(
-                    'customer_id' => $user->ID
-                ));
-                $order->add_product(
-                    wc_get_product($_GET['wc-products']),
-                    1,
-                    array('subtotal' => 0, 'total' => 0)
-                );
+                // Check Free Payment Or Payment Order
+                $payment_method = trim($_GET['wc-payment']);
+                if ($payment_method == "free") {
+
+                    // @see https://www.damiencarbery.com/2018/01/programmatically-create-a-woocommerce-order-for-a-downloadable-product/
+                    $order = wc_create_order(array(
+                        'customer_id' => $user->ID
+                    ));
+                    $order->add_product(
+                        wc_get_product($_GET['wc-products']),
+                        1,
+                        array('subtotal' => 0, 'total' => 0)
+                    );
+                    $order->calculate_totals();
+                    $order->update_status('completed', '', TRUE);
+                    $order->save();
+                    wc_downloadable_product_permissions($order->get_order_number());
+                    $wpdb->update($wpdb->prefix . 'woocommerce_downloadable_product_permissions', array('user_id' => $user->ID), array('order_id' => $order->get_order_number()), array('%d'), array('%d'));
+
+                    // Redirect to Success Page
+                    wp_redirect($redirect_link);
+                    exit;
+                }
+
+                /**
+                 * Create CheckOut Order For Payment
+                 * @see https://rudrastyh.com/woocommerce/get-and-hook-payment-gateways.html
+                 */
+
+                // Add Product To Cart
+                WC()->cart->empty_cart();
+                WC()->cart->add_to_cart($_GET['wc-products'], 1);
+                WC()->cart->calculate_shipping();
+                WC()->cart->calculate_totals();
+
+                // Generate Order
+                // @see https://stackoverflow.com/questions/53853204/save-custom-cart-item-data-from-dynamic-created-cart-on-order-creation-in-woocom
+                $order_id = WC()->checkout->create_order([
+                    'payment_method' => $payment_method
+                ]);
+                $order = wc_get_order($order_id);
+                $user_array = [
+                    'first_name' => $fullName,
+                    'phone' => $Mobile,
+                ];
+                $order->set_address($user_array, 'billing');
+                $order->set_address($user_array, 'shipping');
+                $order->set_customer_id($user->ID);
                 $order->calculate_totals();
-                $order->update_status('completed', '', TRUE);
                 $order->save();
-                wc_downloadable_product_permissions($order->get_order_number());
-                $wpdb->update($wpdb->prefix . 'woocommerce_downloadable_product_permissions', array('user_id' => $user->ID), array('order_id' => $order->get_order_number()), array('%d'), array('%d'));
+
+                // Store Order ID in session so it can be re-used after payment failure
+                WC()->session->set('order_awaiting_payment', $order_id);
+
+                // Process Payment
+                $available_gateways = WC()->payment_gateways->get_available_payment_gateways();
+                $result = $available_gateways[$payment_method]->process_payment(wc_get_order($order_id));
+
+                // Redirect to success/confirmation/payment page
+                if ($result['result'] == 'success') {
+                    $result = apply_filters('woocommerce_payment_successful_result', $result, $order_id);
+                    wp_redirect($result['redirect']);
+                    exit;
+                }
+
+                // Wrong in Redirect Payment
+                $location = add_query_arg(['_form_notice' => 'خطا در هنگام انتقال به درگاه پرداختی بانک رخ داده است ، لطفا مجدد تلاش کنید'], trim($_GET['wc-page']));
+                wp_redirect($location);
+                exit;
             }
 
-            // Redirect to Success Page
-            wp_redirect($_GET['wc-redirect']);
+
+            // Redirect
+            wp_redirect($redirect_link);
             exit;
         }
     }
